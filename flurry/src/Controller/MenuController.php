@@ -2,49 +2,47 @@
 
 namespace App\Controller;
 
+use App\Entity\Menu;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Annotation\Route;
-use Doctrine\Persistence\ManagerRegistry;
 use Symfony\Component\HttpFoundation\Request;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\HttpFoundation\Response;
-use App\Entity\Menu;
+use Symfony\Component\Routing\Annotation\Route;
 
 /**
  * @Route("/api", name="api_")
  */
 class MenuController extends AbstractController
 {
-    private $entityManager;
-    
-    public function __construct(EntityManagerInterface $entityManager)
+    public function __construct(private EntityManagerInterface $entityManager)
     {
-        $this->entityManager = $entityManager;
     }
+
     /**
      * @Route("/menu", name="get_all_positions", methods={"GET"})
      */
     public function getAllPositions(): JsonResponse
     {
-        $postions = $this->entityManager->getRepository(Menu::class)->findAll();
-        if (!$postions) {
+        $items = $this->entityManager->getRepository(Menu::class)->findAll();
+        if (!$items) {
             return $this->json(['error' => 'Positions not found'], Response::HTTP_NOT_FOUND);
         }
-        return $this->json($postions);
+
+        return $this->json($items);
     }
 
     /**
-     * @Route("/menu/{id}",name="get_position", methods={"GET"})
+     * @Route("/menu/{id}", name="get_position", methods={"GET"})
      */
     public function getOnePositionById(int $id): JsonResponse
     {
-        $menu = $this->entityManager->getRepository(Menu::class)->find($id);
-        if (!$menu) {
+        $item = $this->entityManager->getRepository(Menu::class)->find($id);
+        if (!$item) {
             return $this->json(['error' => 'Position not found'], Response::HTTP_NOT_FOUND);
         }
 
-        return $this->json($menu);
+        return $this->json($item);
     }
 
     /**
@@ -52,46 +50,37 @@ class MenuController extends AbstractController
      */
     public function addNewPosition(Request $request): JsonResponse
     {
-        $data = json_decode($request->getContent(), true);
+        $data = $request->toArray();
+        if (!isset($data['title']) || !array_key_exists('price', $data)) {
+            return $this->json(['error' => 'Title and price are required'], Response::HTTP_BAD_REQUEST);
+        }
 
-        $menu = new Menu();
-        $menu->setTitle($data['title']);
-        $menu->setPrice($data['price']);
-        $menu->setDateCreate(new \DateTimeImmutable());
-        $menu->setDateModified(new \DateTime());
+        $item = new Menu();
+        $this->applyFields($item, $data);
+        $item->setDateCreate(new \DateTimeImmutable());
+        $item->setDateModified(new \DateTime());
 
-        $menu->setDescription($data['description'] ?? null);
-        $menu->setImage($data['image'] ?? null);
-        
-        $this->entityManager->persist($menu);
+        $this->entityManager->persist($item);
         $this->entityManager->flush();
 
-        return $this->json($menu);
+        return $this->json($item, Response::HTTP_OK);
     }
 
     /**
-     * @Route("/menu/{id}",name="edit_position", methods={"PUT", "PATCH"})
+     * @Route("/menu/{id}", name="edit_position", methods={"PUT", "PATCH"})
      */
-    public function updatePositionById(Request $request, int $id ): JsonResponse
+    public function updatePositionById(Request $request, int $id): JsonResponse
     {
-        $menu = $this->entityManager->getRepository(Menu::class)->find($id);
-
-        if (!$menu) {
+        $item = $this->entityManager->getRepository(Menu::class)->find($id);
+        if (!$item) {
             return $this->json(['error' => 'Position not found'], Response::HTTP_NOT_FOUND);
         }
-        $data = json_decode($request->getContent(), true);
 
-        $menu->setTitle($data['title'] ?? null);
-        $menu->setDescription($data['description'] ?? null);
-        $menu->setPrice($data['price'] ?? null);
-        $menu->setImage($data['image'] ?? null);
-
-        $menu->setDateModified(new \DateTime());
-
-        $this->entityManager->persist($menu);
+        $this->applyFields($item, $request->toArray());
+        $item->setDateModified(new \DateTime());
         $this->entityManager->flush();
 
-        return $this->json($menu);
+        return $this->json($item);
     }
 
     /**
@@ -99,15 +88,31 @@ class MenuController extends AbstractController
      */
     public function deletePostionById(int $id): JsonResponse
     {
-        $menu = $this->entityManager->getRepository(Menu::class)->find($id);
-
-        if (!$menu) {
+        $item = $this->entityManager->getRepository(Menu::class)->find($id);
+        if (!$item) {
             return $this->json(['error' => 'Position not found'], Response::HTTP_NOT_FOUND);
         }
-        $this->entityManager->persist($menu);
-        $this->entityManager->remove($menu);
-        $this->entityManager->flush();;
 
-        return $this->json(['message' => 'Position '.$menu->getTitle().' deleted successfully.']);
+        $title = $item->getTitle();
+        $this->entityManager->remove($item);
+        $this->entityManager->flush();
+
+        return $this->json(['message' => 'Position '.$title.' deleted successfully.']);
+    }
+
+    private function applyFields(Menu $item, array $data): void
+    {
+        $fieldSetters = [
+            'title' => 'setTitle',
+            'price' => 'setPrice',
+            'description' => 'setDescription',
+            'image' => 'setImage',
+        ];
+
+        foreach ($fieldSetters as $field => $setter) {
+            if (array_key_exists($field, $data)) {
+                $item->$setter($data[$field]);
+            }
+        }
     }
 }
